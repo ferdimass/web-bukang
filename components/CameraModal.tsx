@@ -17,6 +17,227 @@ interface CameraModalProps {
   }) => void;
 }
 
+/**
+ * Render geotag overlay baked directly into the image using an offscreen canvas.
+ *
+ * Layout: original photo on top, then a dark footer panel (~130px tall) containing:
+ *   - Left column: OSM static map thumbnail (via tile URL)
+ *   - Right column: pin icon + address, clock icon + formatted timestamp, coords
+ *
+ * The final canvas blob is returned — this is what gets uploaded to storage,
+ * so the geotag is permanently embedded (baked-in) into the image.
+ */
+async function renderGeotaggedBlob(
+  photoBlob: Blob,
+  lat: number,
+  lng: number,
+  address: string,
+  timestamp: string
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(photoBlob);
+    img.src = objectUrl;
+    img.onload = async () => {
+      URL.revokeObjectURL(objectUrl);
+
+      const photoW = img.naturalWidth;
+      const photoH = img.naturalHeight;
+      const FOOTER_H = 130;
+      const MAP_W = 130;
+      const PADDING = 12;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = photoW;
+      canvas.height = photoH + FOOTER_H;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas context not available'));
+        return;
+      }
+
+      // 1. Draw original photo
+      ctx.drawImage(img, 0, 0, photoW, photoH);
+
+      // 2. Draw footer background
+      ctx.fillStyle = '#0f172a'; // slate-900
+      ctx.fillRect(0, photoH, photoW, FOOTER_H);
+
+      // 3. Draw subtle top border accent on footer
+      ctx.fillStyle = '#6366f1'; // indigo-500
+      ctx.fillRect(0, photoH, photoW, 2);
+
+      // 4. Attempt to fetch & draw OSM static map thumbnail
+      const zoom = 15;
+      const tileSize = 256;
+      // Convert lat/lng to tile XY
+      const tileX = Math.floor(((lng + 180) / 360) * Math.pow(2, zoom));
+      const tileY = Math.floor(
+        ((1 -
+          Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) /
+            Math.PI) /
+          2) *
+          Math.pow(2, zoom)
+      );
+      const tileUrl = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+
+      let mapDrawn = false;
+      try {
+        // Fetch the tile as a blob to avoid CORS issues with drawImage on external URLs
+        const tileResp = await fetch(tileUrl, {
+          headers: { 'User-Agent': 'BukuAngkatan/1.0' },
+        });
+        if (tileResp.ok) {
+          const tileBlob = await tileResp.blob();
+          const tileObjectUrl = URL.createObjectURL(tileBlob);
+          await new Promise<void>((res) => {
+            const tileImg = new Image();
+            tileImg.src = tileObjectUrl;
+            tileImg.onload = () => {
+              const mapY = photoH + PADDING;
+              const mapH = FOOTER_H - PADDING * 2;
+              // Draw map thumbnail
+              ctx.save();
+              ctx.beginPath();
+              ctx.roundRect(PADDING, mapY, MAP_W, mapH, 6);
+              ctx.clip();
+              ctx.drawImage(tileImg, PADDING, mapY, MAP_W, mapH);
+              ctx.restore();
+              // Pin marker overlay on map center
+              const pinX = PADDING + MAP_W / 2;
+              const pinY = mapY + mapH / 2;
+              ctx.fillStyle = '#ef4444';
+              ctx.beginPath();
+              ctx.arc(pinX, pinY, 6, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              URL.revokeObjectURL(tileObjectUrl);
+              mapDrawn = true;
+              res();
+            };
+            tileImg.onerror = () => {
+              URL.revokeObjectURL(tileObjectUrl);
+              res();
+            };
+          });
+        }
+      } catch {
+        // Map tile fetch failed — skip map, still render text
+      }
+
+      if (!mapDrawn) {
+        // Fallback: draw a placeholder gray box with map icon text
+        const mapY = photoH + PADDING;
+        const mapH = FOOTER_H - PADDING * 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(PADDING, mapY, MAP_W, mapH, 6);
+        ctx.clip();
+        ctx.fillStyle = '#1e293b'; // slate-800
+        ctx.fill();
+        ctx.restore();
+        ctx.fillStyle = '#64748b';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('📍 Map', PADDING + MAP_W / 2, photoH + FOOTER_H / 2 + 4);
+        ctx.textAlign = 'left';
+      }
+
+      // 5. Draw text info (right of map)
+      const textX = PADDING + MAP_W + 12;
+      const textMaxW = photoW - textX - PADDING;
+      const lineH = 17;
+      let textY = photoH + PADDING + 14;
+
+      // Address (truncated to fit)
+      ctx.fillStyle = '#f1f5f9'; // slate-100
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('📍', textX, textY);
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#cbd5e1'; // slate-300
+      // Word-wrap address across up to 3 lines
+      const words = address.split(' ');
+      let line = '';
+      let lineCount = 0;
+      for (const word of words) {
+        const testLine = line + (line ? ' ' : '') + word;
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > textMaxW - 16 && line) {
+          ctx.fillText(line, textX + 16, textY);
+          textY += lineH;
+          line = word;
+          lineCount++;
+          if (lineCount >= 3) {
+            line += '...';
+            break;
+          }
+        } else {
+          line = testLine;
+        }
+      }
+      if (line) {
+        ctx.fillText(line, textX + 16, textY);
+        textY += lineH;
+      }
+
+      textY += 4;
+
+      // Timestamp
+      ctx.fillStyle = '#f1f5f9';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('🕐', textX, textY);
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#94a3b8'; // slate-400
+      const dateStr = new Date(timestamp).toLocaleString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      ctx.fillText(dateStr, textX + 16, textY);
+      textY += lineH + 4;
+
+      // Coordinates
+      ctx.fillStyle = '#f1f5f9';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('🌐', textX, textY);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#6366f1'; // indigo-400
+      const coordStr =
+        lat !== 0 || lng !== 0
+          ? `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+          : 'Koordinat tidak tersedia';
+      ctx.fillText(coordStr, textX + 16, textY);
+
+      // 6. Watermark
+      ctx.font = '9px sans-serif';
+      ctx.fillStyle = '#475569'; // slate-600
+      ctx.textAlign = 'right';
+      ctx.fillText('Buku Angkatan 2026 • ITS', photoW - PADDING, photoH + FOOTER_H - 8);
+      ctx.textAlign = 'left';
+
+      // 7. Export as JPEG blob
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Canvas toBlob failed'));
+        },
+        'image/jpeg',
+        0.88
+      );
+    };
+
+    img.onerror = (err) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(err);
+    };
+  });
+}
+
 export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -136,13 +357,24 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     try {
       // 1. Client-side compression
       const compressedBlob = await compressImage(rawFile, 1000, 0.75);
-      const previewUrl = URL.createObjectURL(compressedBlob);
 
       // 2. Geolocation + Reverse Geocoding
       const locationData = await getLocationAndAddress();
 
+      // 3. Bake geotag overlay into image using canvas compositing
+      setStatusMessage('Menggabungkan geotag ke dalam foto...');
+      const geotaggedBlob = await renderGeotaggedBlob(
+        compressedBlob,
+        locationData.lat,
+        locationData.lng,
+        locationData.address,
+        locationData.timestamp
+      );
+
+      const previewUrl = URL.createObjectURL(geotaggedBlob);
+
       onCapture({
-        photoBlob: compressedBlob,
+        photoBlob: geotaggedBlob,
         previewUrl,
         ...locationData,
       });

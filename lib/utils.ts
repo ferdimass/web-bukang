@@ -1,21 +1,22 @@
 /**
  * Automatic classification of Prodi based on NRP pattern:
  * - Starts with 502525 -> Teknik Informatika
- * - Starts with 5054   -> Rekayasa Kecerdasan Artifisial
- * - Starts with 5053   -> Rekayasa Perangkat Lunak
+ * - Starts with 505425 -> Rekayasa Kecerdasan Artifisial
+ * - Starts with 505325 -> Rekayasa Perangkat Lunak
+ * Returns null if no mapping found, so caller can show an error.
  */
-export function getProdiByNRP(nrp: string): string {
+export function getProdiByNRP(nrp: string): string | null {
   const cleanNrp = (nrp || '').trim();
   if (cleanNrp.startsWith('502525')) {
     return 'Teknik Informatika';
   }
-  if (cleanNrp.startsWith('5054')) {
+  if (cleanNrp.startsWith('505425')) {
     return 'Rekayasa Kecerdasan Artifisial';
   }
-  if (cleanNrp.startsWith('5053')) {
+  if (cleanNrp.startsWith('505325')) {
     return 'Rekayasa Perangkat Lunak';
   }
-  return 'Teknik Informatika'; // Default option
+  return null; // Unknown NRP prefix — caller should show error
 }
 
 /**
