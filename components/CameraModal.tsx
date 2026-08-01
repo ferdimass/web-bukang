@@ -47,14 +47,14 @@ async function renderGeotaggedBlob(
 
         // ── Proportional layout (base: 1000px wide) ──────────────────────
         const scale   = photoW / 1000;
-        const PAD     = Math.max(10, Math.round(14 * scale));
-        const FOOTER  = Math.max(150, Math.round(230 * scale));
+        const PAD     = Math.max(16, Math.round(20 * scale));
+        const FOOTER  = Math.max(280, Math.round(420 * scale));
         const MAP_SZ  = FOOTER - PAD * 2; // square map thumbnail
 
-        // Font sizes
-        const HEAD_F  = Math.max(15, Math.round(21 * scale)); // location name
-        const BODY_F  = Math.max(12, Math.round(15 * scale)); // address lines
-        const SMALL_F = Math.max(10, Math.round(13 * scale)); // datetime + coords
+        // Font sizes (2x from previous revision, per request)
+        const HEAD_F  = Math.max(30, Math.round(42 * scale)); // location name
+        const BODY_F  = Math.max(24, Math.round(30 * scale)); // address lines
+        const SMALL_F = Math.max(20, Math.round(26 * scale)); // datetime + coords
         const LINE_H  = Math.round(BODY_F * 1.65);
 
         // ── Canvas setup ─────────────────────────────────────────────────
@@ -104,6 +104,7 @@ async function renderGeotaggedBlob(
                   t.crossOrigin = 'anonymous';
                   t.onload = () => {
                     mctx.drawImage(t, (dx + 1) * TILE, (dy + 1) * TILE);
+                    t.src = ''; // release decoded bitmap immediately (WebKit memory)
                     res();
                   };
                   t.onerror = () => res(); // skip failed tiles gracefully
@@ -130,6 +131,12 @@ async function renderGeotaggedBlob(
         ctx.drawImage(mc, cropX, cropY, MAP_SZ, MAP_SZ, mapDX, mapDY, MAP_SZ, MAP_SZ);
         ctx.restore();
 
+        // Release the 768×768 composite canvas — no longer needed, and WebKit
+        // reclaims canvas-backed memory faster when width/height is reset than
+        // when left to garbage collection alone.
+        mc.width = 0;
+        mc.height = 0;
+
         // Red pin marker at the exact coordinate position inside the thumbnail
         const pinX = mapDX + (coordPx - cropX);
         const pinY = mapDY + (coordPy - cropY);
@@ -147,7 +154,7 @@ async function renderGeotaggedBlob(
         ctx.restore();
 
         // OSM attribution — required by OSM license, shown inside map bottom strip
-        const attrF   = Math.max(7, Math.round(8 * scale));
+        const attrF   = Math.max(9, Math.round(10 * scale));
         const attrTxt = '© OpenStreetMap contributors';
         ctx.font      = `${attrF}px sans-serif`;
         const attrW  = ctx.measureText(attrTxt).width;
@@ -238,6 +245,11 @@ async function renderGeotaggedBlob(
         // ── Export JPEG ───────────────────────────────────────────────────
         canvas.toBlob(
           (blob) => {
+            // Dispose the main canvas immediately after the blob is captured —
+            // the blob already holds the encoded bytes, so the canvas backing
+            // store is no longer needed.
+            canvas.width = 0;
+            canvas.height = 0;
             if (blob) resolve(blob);
             else reject(new Error('Canvas toBlob failed'));
           },
@@ -306,6 +318,12 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+    // Explicitly clear srcObject — stopping tracks alone doesn't always release
+    // the decoded video frame buffer on WebKit/iOS Safari, which is a common
+    // contributor to "low memory" canvas errors on repeated captures.
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     setStreamActive(false);
   };
@@ -383,7 +401,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       onClose();
     } catch (err: any) {
       console.error('Error processing photo:', err);
-      alert('Terjadi kesalahan saat memproses foto. Silakan coba lagi.');
+      const msg = String(err?.message || err || '');
+      const looksLikeMemoryIssue = /memory|allocat/i.test(msg);
+      alert(
+        looksLikeMemoryIssue
+          ? 'Memori perangkat penuh. Coba tutup aplikasi/tab lain lalu ulangi pengambilan foto.'
+          : 'Terjadi kesalahan saat memproses foto. Silakan coba lagi.'
+      );
     } finally {
       setLoading(false);
       setStatusMessage('');
@@ -402,6 +426,14 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Stop the live camera stream now — the frame is already captured, so the
+    // stream doesn't need to stay decoded in memory during the geotag
+    // compositing pipeline (compression, reverse geocoding, 9 OSM tile loads,
+    // canvas rendering). Keeping it alive that whole time was a major
+    // contributor to the "low memory" errors on repeated captures.
+    stopCamera();
+
     canvas.toBlob(
       async (blob) => {
         if (!blob) return;
