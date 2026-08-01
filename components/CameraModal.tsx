@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Camera, RefreshCw, Check, Upload, AlertCircle, X, MapPin } from 'lucide-react';
+import { Camera, RefreshCw, Upload, AlertCircle, X } from 'lucide-react';
 import { compressImage } from '@/lib/utils';
 
 interface CameraModalProps {
@@ -18,14 +18,14 @@ interface CameraModalProps {
 }
 
 /**
- * Render geotag overlay baked directly into the image using an offscreen canvas.
+ * Render geotag footer baked directly into the image via offscreen canvas.
  *
- * Layout: original photo on top, then a dark footer panel (~130px tall) containing:
- *   - Left column: OSM static map thumbnail (via tile URL)
- *   - Right column: pin icon + address, clock icon + formatted timestamp, coords
+ * Layout (GPS Map Camera style):
+ *   - Footer : full-width, black semi-transparent, NO border, NO watermark
+ *   - Left   : 3×3 OSM tile grid cropped & centered on the coordinate + red pin
+ *   - Right  : location name (bold, large) → address → datetime → coordinates
  *
- * The final canvas blob is returned — this is what gets uploaded to storage,
- * so the geotag is permanently embedded (baked-in) into the image.
+ * All dimensions scale proportionally to photo width for consistent readability.
  */
 async function renderGeotaggedBlob(
   photoBlob: Blob,
@@ -38,197 +38,215 @@ async function renderGeotaggedBlob(
     const img = new Image();
     const objectUrl = URL.createObjectURL(photoBlob);
     img.src = objectUrl;
+
     img.onload = async () => {
       URL.revokeObjectURL(objectUrl);
-
-      const photoW = img.naturalWidth;
-      const photoH = img.naturalHeight;
-      const FOOTER_H = 130;
-      const MAP_W = 130;
-      const PADDING = 12;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = photoW;
-      canvas.height = photoH + FOOTER_H;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('Canvas context not available'));
-        return;
-      }
-
-      // 1. Draw original photo
-      ctx.drawImage(img, 0, 0, photoW, photoH);
-
-      // 2. Draw footer background
-      ctx.fillStyle = '#0f172a'; // slate-900
-      ctx.fillRect(0, photoH, photoW, FOOTER_H);
-
-      // 3. Draw subtle top border accent on footer
-      ctx.fillStyle = '#6366f1'; // indigo-500
-      ctx.fillRect(0, photoH, photoW, 2);
-
-      // 4. Attempt to fetch & draw OSM static map thumbnail
-      const zoom = 15;
-      const tileSize = 256;
-      // Convert lat/lng to tile XY
-      const tileX = Math.floor(((lng + 180) / 360) * Math.pow(2, zoom));
-      const tileY = Math.floor(
-        ((1 -
-          Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) /
-            Math.PI) /
-          2) *
-          Math.pow(2, zoom)
-      );
-      const tileUrl = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
-
-      let mapDrawn = false;
       try {
-        // Fetch the tile as a blob to avoid CORS issues with drawImage on external URLs
-        const tileResp = await fetch(tileUrl, {
-          headers: { 'User-Agent': 'BukuAngkatan/1.0' },
-        });
-        if (tileResp.ok) {
-          const tileBlob = await tileResp.blob();
-          const tileObjectUrl = URL.createObjectURL(tileBlob);
-          await new Promise<void>((res) => {
-            const tileImg = new Image();
-            tileImg.src = tileObjectUrl;
-            tileImg.onload = () => {
-              const mapY = photoH + PADDING;
-              const mapH = FOOTER_H - PADDING * 2;
-              // Draw map thumbnail
-              ctx.save();
-              ctx.beginPath();
-              ctx.roundRect(PADDING, mapY, MAP_W, mapH, 6);
-              ctx.clip();
-              ctx.drawImage(tileImg, PADDING, mapY, MAP_W, mapH);
-              ctx.restore();
-              // Pin marker overlay on map center
-              const pinX = PADDING + MAP_W / 2;
-              const pinY = mapY + mapH / 2;
-              ctx.fillStyle = '#ef4444';
-              ctx.beginPath();
-              ctx.arc(pinX, pinY, 6, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = '#ffffff';
-              ctx.lineWidth = 2;
-              ctx.stroke();
-              URL.revokeObjectURL(tileObjectUrl);
-              mapDrawn = true;
-              res();
-            };
-            tileImg.onerror = () => {
-              URL.revokeObjectURL(tileObjectUrl);
-              res();
-            };
-          });
-        }
-      } catch {
-        // Map tile fetch failed — skip map, still render text
-      }
+        const photoW = img.naturalWidth;
+        const photoH = img.naturalHeight;
 
-      if (!mapDrawn) {
-        // Fallback: draw a placeholder gray box with map icon text
-        const mapY = photoH + PADDING;
-        const mapH = FOOTER_H - PADDING * 2;
+        // ── Proportional layout (base: 1000px wide) ──────────────────────
+        const scale   = photoW / 1000;
+        const PAD     = Math.max(10, Math.round(14 * scale));
+        const FOOTER  = Math.max(150, Math.round(230 * scale));
+        const MAP_SZ  = FOOTER - PAD * 2; // square map thumbnail
+
+        // Font sizes
+        const HEAD_F  = Math.max(15, Math.round(21 * scale)); // location name
+        const BODY_F  = Math.max(12, Math.round(15 * scale)); // address lines
+        const SMALL_F = Math.max(10, Math.round(13 * scale)); // datetime + coords
+        const LINE_H  = Math.round(BODY_F * 1.65);
+
+        // ── Canvas setup ─────────────────────────────────────────────────
+        const canvas = document.createElement('canvas');
+        canvas.width  = photoW;
+        canvas.height = photoH + FOOTER;
+        const ctx = canvas.getContext('2d')!;
+
+        // 1. Original photo
+        ctx.drawImage(img, 0, 0, photoW, photoH);
+
+        // 2. Footer background — black semi-transparent, NO blue border, NO watermark
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+        ctx.fillRect(0, photoH, photoW, FOOTER);
+
+        // ── 3×3 OSM tile grid (properly centered on coordinates) ─────────
+        const ZOOM = 15;
+        const TILE = 256;
+
+        const tXFloat = ((lng + 180) / 360) * Math.pow(2, ZOOM);
+        const latRad  = (lat * Math.PI) / 180;
+        const tYFloat =
+          ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) *
+          Math.pow(2, ZOOM);
+
+        const tX = Math.floor(tXFloat);
+        const tY = Math.floor(tYFloat);
+        // Sub-pixel offset of the coordinate within the center tile
+        const offX = (tXFloat - tX) * TILE;
+        const offY = (tYFloat - tY) * TILE;
+
+        // Offscreen 3×3 composite canvas (768×768 at TILE=256)
+        const mc  = document.createElement('canvas');
+        mc.width  = TILE * 3;
+        mc.height = TILE * 3;
+        const mctx = mc.getContext('2d')!;
+        mctx.fillStyle = '#c8d8b0'; // OSM-like green fallback
+        mctx.fillRect(0, 0, mc.width, mc.height);
+
+        // Load all 9 surrounding tiles in parallel (OSM supports CORS for browsers)
+        await Promise.all(
+          ([-1, 0, 1] as const).flatMap((dy) =>
+            ([-1, 0, 1] as const).map(
+              (dx) =>
+                new Promise<void>((res) => {
+                  const t = new Image();
+                  t.crossOrigin = 'anonymous';
+                  t.onload = () => {
+                    mctx.drawImage(t, (dx + 1) * TILE, (dy + 1) * TILE);
+                    res();
+                  };
+                  t.onerror = () => res(); // skip failed tiles gracefully
+                  t.src = `https://tile.openstreetmap.org/${ZOOM}/${tX + dx}/${tY + dy}.png`;
+                })
+            )
+          )
+        );
+
+        // Crop the 3×3 composite centered on the exact coordinate pixel
+        const coordPx = TILE + offX;
+        const coordPy = TILE + offY;
+        const cropX   = Math.max(0, Math.min(mc.width  - MAP_SZ, coordPx - MAP_SZ / 2));
+        const cropY   = Math.max(0, Math.min(mc.height - MAP_SZ, coordPy - MAP_SZ / 2));
+
+        const mapDX = PAD;
+        const mapDY = photoH + PAD;
+
+        // Draw map thumbnail with rounded corners
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(PADDING, mapY, MAP_W, mapH, 6);
+        ctx.roundRect(mapDX, mapDY, MAP_SZ, MAP_SZ, Math.max(4, Math.round(6 * scale)));
         ctx.clip();
-        ctx.fillStyle = '#1e293b'; // slate-800
-        ctx.fill();
+        ctx.drawImage(mc, cropX, cropY, MAP_SZ, MAP_SZ, mapDX, mapDY, MAP_SZ, MAP_SZ);
         ctx.restore();
-        ctx.fillStyle = '#64748b';
-        ctx.font = 'bold 11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('📍 Map', PADDING + MAP_W / 2, photoH + FOOTER_H / 2 + 4);
-        ctx.textAlign = 'left';
-      }
 
-      // 5. Draw text info (right of map)
-      const textX = PADDING + MAP_W + 12;
-      const textMaxW = photoW - textX - PADDING;
-      const lineH = 17;
-      let textY = photoH + PADDING + 14;
+        // Red pin marker at the exact coordinate position inside the thumbnail
+        const pinX = mapDX + (coordPx - cropX);
+        const pinY = mapDY + (coordPy - cropY);
+        const pinR = Math.max(5, Math.round(8 * scale));
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.55)';
+        ctx.shadowBlur  = Math.round(5 * scale);
+        ctx.fillStyle   = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(pinX, pinY, pinR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth   = Math.max(2, Math.round(2.5 * scale));
+        ctx.stroke();
+        ctx.restore();
 
-      // Address (truncated to fit)
-      ctx.fillStyle = '#f1f5f9'; // slate-100
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('📍', textX, textY);
-      ctx.font = '11px sans-serif';
-      ctx.fillStyle = '#cbd5e1'; // slate-300
-      // Word-wrap address across up to 3 lines
-      const words = address.split(' ');
-      let line = '';
-      let lineCount = 0;
-      for (const word of words) {
-        const testLine = line + (line ? ' ' : '') + word;
-        const metrics = ctx.measureText(testLine);
-        if (metrics.width > textMaxW - 16 && line) {
-          ctx.fillText(line, textX + 16, textY);
-          textY += lineH;
-          line = word;
-          lineCount++;
-          if (lineCount >= 3) {
-            line += '...';
-            break;
-          }
-        } else {
-          line = testLine;
+        // OSM attribution — required by OSM license, shown inside map bottom strip
+        const attrF   = Math.max(7, Math.round(8 * scale));
+        const attrTxt = '© OpenStreetMap contributors';
+        ctx.font      = `${attrF}px sans-serif`;
+        const attrW  = ctx.measureText(attrTxt).width;
+        const attrH  = attrF + 4;
+        ctx.fillStyle = 'rgba(255,255,255,0.72)';
+        ctx.fillRect(mapDX + 2, mapDY + MAP_SZ - attrH - 2, attrW + 6, attrH);
+        ctx.fillStyle = '#222222';
+        ctx.fillText(attrTxt, mapDX + 5, mapDY + MAP_SZ - 3);
+
+        // ── Text info (right of map) — GPS Map Camera hierarchy ──────────
+        const textX    = mapDX + MAP_SZ + Math.round(16 * scale);
+        const textMaxW = photoW - textX - PAD;
+
+        // Split address: first 2 comma-parts = location name, rest = detail
+        const parts     = address.split(',').map((s) => s.trim()).filter(Boolean);
+        const locName   = parts.slice(0, 2).join(', ') || address;
+        const locDetail = parts.slice(2).join(', ');
+
+        let ty = photoH + PAD + HEAD_F;
+
+        // ① Location name — white, bold, large
+        ctx.fillStyle = '#ffffff';
+        ctx.font      = `bold ${HEAD_F}px sans-serif`;
+        let loc = locName;
+        while (ctx.measureText(loc).width > textMaxW && loc.length > 4) {
+          loc = loc.slice(0, -1);
         }
+        if (loc.length < locName.length) loc += '…';
+        ctx.fillText(loc, textX, ty);
+        ty += Math.round(HEAD_F * 1.35);
+
+        // ② Detail address — slate-300, up to 2 lines
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font      = `${BODY_F}px sans-serif`;
+        const addrWords = locDetail.split(' ');
+        let curLine = '';
+        let addrLineCount = 0;
+        for (const word of addrWords) {
+          const test = curLine ? curLine + ' ' + word : word;
+          if (ctx.measureText(test).width > textMaxW && curLine) {
+            ctx.fillText(curLine, textX, ty);
+            ty += LINE_H;
+            curLine = word;
+            addrLineCount++;
+            if (addrLineCount >= 2) {
+              while (ctx.measureText(curLine + '…').width > textMaxW && curLine.length > 1) {
+                curLine = curLine.slice(0, -1);
+              }
+              ctx.fillText(curLine + '…', textX, ty);
+              ty += LINE_H;
+              curLine = '';
+              break;
+            }
+          } else {
+            curLine = test;
+          }
+        }
+        if (curLine) {
+          ctx.fillText(curLine, textX, ty);
+          ty += LINE_H;
+        }
+
+        ty += Math.round(6 * scale);
+
+        // ③ Date & time — slate-400
+        ctx.fillStyle = '#94a3b8';
+        ctx.font      = `${SMALL_F}px sans-serif`;
+        const dateStr = new Date(timestamp).toLocaleString('id-ID', {
+          weekday: 'long',
+          day:     '2-digit',
+          month:   'long',
+          year:    'numeric',
+          hour:    '2-digit',
+          minute:  '2-digit',
+        });
+        ctx.fillText(`⏱  ${dateStr}`, textX, ty);
+        ty += Math.round(SMALL_F * 1.75);
+
+        // ④ Coordinates — blue, monospace
+        ctx.fillStyle = '#60a5fa';
+        ctx.font      = `${SMALL_F}px monospace`;
+        const coordStr =
+          lat !== 0 || lng !== 0
+            ? `${lat.toFixed(6)}°,  ${lng.toFixed(6)}°`
+            : 'Koordinat tidak tersedia';
+        ctx.fillText(coordStr, textX, ty);
+
+        // ── Export JPEG ───────────────────────────────────────────────────
+        canvas.toBlob(
+          (blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Canvas toBlob failed'));
+          },
+          'image/jpeg',
+          0.9
+        );
+      } catch (err) {
+        reject(err);
       }
-      if (line) {
-        ctx.fillText(line, textX + 16, textY);
-        textY += lineH;
-      }
-
-      textY += 4;
-
-      // Timestamp
-      ctx.fillStyle = '#f1f5f9';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('🕐', textX, textY);
-      ctx.font = '11px sans-serif';
-      ctx.fillStyle = '#94a3b8'; // slate-400
-      const dateStr = new Date(timestamp).toLocaleString('id-ID', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      ctx.fillText(dateStr, textX + 16, textY);
-      textY += lineH + 4;
-
-      // Coordinates
-      ctx.fillStyle = '#f1f5f9';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('🌐', textX, textY);
-      ctx.font = '10px monospace';
-      ctx.fillStyle = '#6366f1'; // indigo-400
-      const coordStr =
-        lat !== 0 || lng !== 0
-          ? `${lat.toFixed(6)}, ${lng.toFixed(6)}`
-          : 'Koordinat tidak tersedia';
-      ctx.fillText(coordStr, textX + 16, textY);
-
-      // 6. Watermark
-      ctx.font = '9px sans-serif';
-      ctx.fillStyle = '#475569'; // slate-600
-      ctx.textAlign = 'right';
-      ctx.fillText('Buku Angkatan 2026 • ITS', photoW - PADDING, photoH + FOOTER_H - 8);
-      ctx.textAlign = 'left';
-
-      // 7. Export as JPEG blob
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Canvas toBlob failed'));
-        },
-        'image/jpeg',
-        0.88
-      );
     };
 
     img.onerror = (err) => {
@@ -248,7 +266,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
 
-  // Start camera stream when modal opens
   useEffect(() => {
     if (isOpen) {
       startCamera();
@@ -265,7 +282,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'user', // Default to front camera (selfie mode)
+          facingMode: 'user',
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -293,17 +310,17 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     setStreamActive(false);
   };
 
-  const getLocationAndAddress = async (): Promise<{ lat: number; lng: number; address: string; timestamp: string }> => {
+  const getLocationAndAddress = async (): Promise<{
+    lat: number;
+    lng: number;
+    address: string;
+    timestamp: string;
+  }> => {
     const timestamp = new Date().toISOString();
 
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        resolve({
-          lat: 0,
-          lng: 0,
-          address: 'Lokasi tidak didukung oleh peramban ini',
-          timestamp,
-        });
+        resolve({ lat: 0, lng: 0, address: 'Lokasi tidak didukung oleh peramban ini', timestamp });
         return;
       }
 
@@ -314,21 +331,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           let address = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
 
           try {
-            // Free Reverse Geocoding via Nominatim OpenStreetMap API
             const response = await fetch(
               `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
-              {
-                headers: {
-                  'Accept-Language': 'id,en',
-                },
-              }
+              { headers: { 'Accept-Language': 'id,en' } }
             );
-
             if (response.ok) {
               const data = await response.json();
-              if (data && data.display_name) {
-                address = data.display_name;
-              }
+              if (data?.display_name) address = data.display_name;
             }
           } catch (e) {
             console.error('Reverse geocoding error:', e);
@@ -355,13 +364,9 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     setStatusMessage('Mengompres foto & merekam koordinat lokasi...');
 
     try {
-      // 1. Client-side compression
       const compressedBlob = await compressImage(rawFile, 1000, 0.75);
+      const locationData   = await getLocationAndAddress();
 
-      // 2. Geolocation + Reverse Geocoding
-      const locationData = await getLocationAndAddress();
-
-      // 3. Bake geotag overlay into image using canvas compositing
       setStatusMessage('Menggabungkan geotag ke dalam foto...');
       const geotaggedBlob = await renderGeotaggedBlob(
         compressedBlob,
@@ -373,12 +378,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
       const previewUrl = URL.createObjectURL(geotaggedBlob);
 
-      onCapture({
-        photoBlob: geotaggedBlob,
-        previewUrl,
-        ...locationData,
-      });
-
+      onCapture({ photoBlob: geotaggedBlob, previewUrl, ...locationData });
       stopCamera();
       onClose();
     } catch (err: any) {
@@ -393,18 +393,15 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const handleCapture = async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    const video = videoRef.current;
+    const video  = videoRef.current;
     const canvas = canvasRef.current;
-
-    canvas.width = video.videoWidth || 640;
+    canvas.width  = video.videoWidth  || 640;
     canvas.height = video.videoHeight || 480;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw video frame to canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
     canvas.toBlob(
       async (blob) => {
         if (!blob) return;
@@ -446,13 +443,20 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           {loading ? (
             <div className="flex flex-col items-center gap-3 py-10">
               <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
-              <p className="text-sm font-medium text-slate-600 dark:text-slate-300 text-center">{statusMessage}</p>
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300 text-center">
+                {statusMessage}
+              </p>
             </div>
           ) : streamActive ? (
             <div className="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden shadow-md">
-              <video ref={videoRef} className="w-full h-full object-cover transform -scale-x-100" playsInline autoPlay />
+              <video
+                ref={videoRef}
+                className="w-full h-full object-cover transform -scale-x-100"
+                playsInline
+                autoPlay
+              />
               <div className="absolute top-3 left-3 bg-black/60 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-md flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 Kamera Depan Aktif
               </div>
             </div>
@@ -464,15 +468,19 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                   <span>{cameraError}</span>
                 </div>
               )}
-
               <p className="text-sm text-slate-600 dark:text-slate-300">
                 Pilih foto dari galeri HP atau ambil foto menggunakan kamera peramban.
               </p>
-
               <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-md active:scale-95">
                 <Upload className="w-4 h-4" />
                 Pilih Foto / Upload
-                <input type="file" accept="image/*" capture="user" onChange={handleFileUpload} className="hidden" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
               </label>
             </div>
           )}
