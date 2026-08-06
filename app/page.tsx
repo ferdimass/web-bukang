@@ -143,8 +143,14 @@ export default function StudentFormPage() {
     address: string;
     timestamp: string;
   }) => {
+    // Clean up previous blob URL from RAM if it was a blob URL
+    setFotoPreview((prev) => {
+      if (prev && prev.startsWith('blob:')) {
+        URL.revokeObjectURL(prev);
+      }
+      return data.previewUrl;
+    });
     setFotoBlob(data.photoBlob);
-    setFotoPreview(data.previewUrl);
     setGeotagLat(data.lat);
     setGeotagLng(data.lng);
     setGeotagAddress(data.address);

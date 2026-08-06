@@ -35,48 +35,56 @@ export function sanitizeFilename(name: string): string {
  * Client-side browser image compression:
  * Resizes max width/height to ~1000px and compresses JPEG quality to ~75%.
  */
-export async function compressImage(file: File, maxWidth = 1000, quality = 0.75): Promise<Blob> {
+export async function compressImage(file: File | Blob, maxWidth = 1000, quality = 0.75): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target?.result as string;
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.src = objectUrl;
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let width = img.width;
+      let height = img.height;
 
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Canvas context not available'));
-          return;
-        }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
 
-        ctx.drawImage(img, 0, 0, width, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        img.src = '';
+        reject(new Error('Canvas context not available'));
+        return;
+      }
 
-        canvas.toBlob(
-          (blob) => {
-            if (blob) {
-              resolve(blob);
-            } else {
-              reject(new Error('Canvas compression failed'));
-            }
-          },
-          'image/jpeg',
-          quality
-        );
-      };
-      img.onerror = (err) => reject(err);
+      ctx.drawImage(img, 0, 0, width, height);
+      img.src = ''; // Release decoded image bitmap from memory
+
+      canvas.toBlob(
+        (blob) => {
+          // Release GPU texture / canvas backing memory immediately
+          canvas.width = 0;
+          canvas.height = 0;
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Canvas compression failed'));
+          }
+        },
+        'image/jpeg',
+        quality
+      );
     };
-    reader.onerror = (err) => reject(err);
+
+    img.onerror = (err) => {
+      URL.revokeObjectURL(objectUrl);
+      img.src = '';
+      reject(err);
+    };
   });
 }

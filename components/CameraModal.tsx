@@ -65,6 +65,7 @@ async function renderGeotaggedBlob(
 
         // 1. Original photo
         ctx.drawImage(img, 0, 0, photoW, photoH);
+        img.src = ''; // Release decoded image RAM immediately after rendering
 
         // 2. Footer background — black semi-transparent, NO blue border, NO watermark
         ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
@@ -437,6 +438,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
     canvas.toBlob(
       async (blob) => {
+        canvas.width = 0;
+        canvas.height = 0;
         if (!blob) return;
         const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
         await processPhotoBlob(file);
