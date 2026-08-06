@@ -65,7 +65,6 @@ async function renderGeotaggedBlob(
 
         // 1. Original photo
         ctx.drawImage(img, 0, 0, photoW, photoH);
-        img.src = ''; // Release decoded image RAM immediately after rendering
 
         // 2. Footer background — black semi-transparent, NO blue border, NO watermark
         ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
@@ -247,9 +246,7 @@ async function renderGeotaggedBlob(
         // ── Export JPEG ───────────────────────────────────────────────────
         canvas.toBlob(
           (blob) => {
-            // Dispose the main canvas immediately after the blob is captured —
-            // the blob already holds the encoded bytes, so the canvas backing
-            // store is no longer needed.
+            img.src = '';
             canvas.width = 0;
             canvas.height = 0;
             if (blob) resolve(blob);
@@ -429,17 +426,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Stop the live camera stream now — the frame is already captured, so the
-    // stream doesn't need to stay decoded in memory during the geotag
-    // compositing pipeline (compression, reverse geocoding, 9 OSM tile loads,
-    // canvas rendering). Keeping it alive that whole time was a major
-    // contributor to the "low memory" errors on repeated captures.
-    stopCamera();
-
     canvas.toBlob(
       async (blob) => {
-        canvas.width = 0;
-        canvas.height = 0;
         if (!blob) return;
         const file = new File([blob], `photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
         await processPhotoBlob(file);

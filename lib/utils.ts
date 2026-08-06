@@ -42,7 +42,6 @@ export async function compressImage(file: File | Blob, maxWidth = 1000, quality 
     img.src = objectUrl;
 
     img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
       let width = img.width;
       let height = img.height;
 
@@ -57,17 +56,18 @@ export async function compressImage(file: File | Blob, maxWidth = 1000, quality 
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
         img.src = '';
         reject(new Error('Canvas context not available'));
         return;
       }
 
       ctx.drawImage(img, 0, 0, width, height);
-      img.src = ''; // Release decoded image bitmap from memory
 
       canvas.toBlob(
         (blob) => {
-          // Release GPU texture / canvas backing memory immediately
+          URL.revokeObjectURL(objectUrl);
+          img.src = '';
           canvas.width = 0;
           canvas.height = 0;
           if (blob) {
