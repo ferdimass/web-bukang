@@ -501,7 +501,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 </div>
               )}
               <p className="text-sm text-slate-600 dark:text-slate-300">
-                Pilih foto dari galeri HP atau ambil foto menggunakan kamera peramban.
+                Pilih foto dari galeri HP atau ambil foto menggunakan kamera.
               </p>
               <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-md active:scale-95">
                 <Upload className="w-4 h-4" />
