@@ -44,14 +44,12 @@ export default function AdminImportPage() {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
 
-        // Parse sheet as array of raw objects
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: '' });
 
         if (rawJson.length === 0) {
           throw new Error('File Excel kosong atau format tidak sesuai.');
         }
 
-        // Validate header presence: "Nama Lengkap" and "NRP"
         const sampleRow = rawJson[0];
         const keys = Object.keys(sampleRow);
 
@@ -64,11 +62,9 @@ export default function AdminImportPage() {
           );
         }
 
-        // Map data ensuring NRP is strictly treated as text string
         const parsedData = rawJson.map((row: any) => {
           let nrpStr = String(row[nrpHeader] || '').trim();
 
-          // Standardize NRP formatting if needed
           if (nrpStr.length < 10 && /^\d+$/.test(nrpStr)) {
             nrpStr = nrpStr.padStart(10, '0');
           }
@@ -97,7 +93,6 @@ export default function AdminImportPage() {
     setUploadStatus('Mengunggah data ke tabel master_mahasiswa...');
 
     try {
-      // Chunk batch insert to prevent Supabase payload limit
       const chunkSize = 100;
       for (let i = 0; i < previewRows.length; i += chunkSize) {
         const chunk = previewRows.slice(i, i + chunkSize);
@@ -119,46 +114,46 @@ export default function AdminImportPage() {
 
   if (loadingSession) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
-        <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
+      <div className="min-h-screen bg-[#f5f5f7] dark:bg-[#000000] flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 text-[#0071e3] dark:text-[#2997ff] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#f5f5f7] dark:bg-[#000000] text-[#1d1d1f] dark:text-[#f5f5f7] flex flex-col font-sans transition-colors duration-200">
       <Navbar />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 py-8 flex flex-col gap-6">
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col gap-4">
-          <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-inner">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-14 flex flex-col gap-8">
+        <div className="apple-card rounded-3xl p-6 sm:p-8 shadow-sm flex flex-col gap-6">
+          <div className="flex items-center gap-3 border-b border-black/[0.06] dark:border-white/[0.08] pb-5">
+            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 flex items-center justify-center">
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                 Import Data Master Mahasiswa
               </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Unggah file Excel berisi 300+ data master mahasiswa (Header: "Nama Lengkap" & "NRP").
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-normal">
+                Unggah file Excel berisi data master mahasiswa (Header: "Nama Lengkap" & "NRP").
               </p>
             </div>
           </div>
 
           {/* File Upload Box */}
-          <div className="w-full p-8 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center text-center gap-3 bg-slate-50 dark:bg-slate-800/40">
-            <FileSpreadsheet className="w-12 h-12 text-indigo-500" />
+          <div className="w-full p-10 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center text-center gap-3 bg-[#f5f5f7]/60 dark:bg-[#2c2c2e]/40">
+            <FileSpreadsheet className="w-10 h-10 text-slate-400 dark:text-slate-500" />
             <div>
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+              <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                 {file ? file.name : 'Pilih File Excel (.xlsx / .xls / .csv)'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                 Kolom NRP akan secara otomatis diparse sebagai tipe teks string 10 digit.
               </p>
             </div>
 
-            <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all shadow-md active:scale-95">
-              <UploadCloud className="w-4 h-4" />
+            <label className="cursor-pointer bg-[#0071e3] hover:bg-[#0077ed] dark:bg-[#2997ff] dark:hover:bg-[#0071e3] text-white px-5 py-2 rounded-full font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95">
+              <UploadCloud className="w-3.5 h-3.5" />
               Pilih File Excel
               <input
                 type="file"
@@ -170,14 +165,14 @@ export default function AdminImportPage() {
           </div>
 
           {errorMsg && (
-            <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {uploadStatus && (
-            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2 font-medium">
+            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2 font-medium">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
               <span>{uploadStatus}</span>
             </div>
@@ -187,45 +182,45 @@ export default function AdminImportPage() {
           {previewRows.length > 0 && (
             <div className="flex flex-col gap-4 mt-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   Pratinjau Data Master ({previewRows.length} Baris Terbaca)
                 </span>
                 <button
                   onClick={handleImportToDatabase}
                   disabled={isProcessing}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                  className="px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs shadow-sm flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50"
                 >
                   {isProcessing ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       Mengimpor Data...
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4" />
+                      <CheckCircle2 className="w-3.5 h-3.5" />
                       Impor ke Database
                     </>
                   )}
                 </button>
               </div>
 
-              <div className="max-h-80 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+              <div className="max-h-80 overflow-y-auto border border-black/[0.08] dark:border-white/[0.1] rounded-2xl">
                 <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold sticky top-0">
+                  <thead className="bg-[#f5f5f7] dark:bg-[#2c2c2e] text-slate-700 dark:text-slate-300 font-semibold sticky top-0">
                     <tr>
-                      <th className="p-3 border-b border-slate-200 dark:border-slate-700">#</th>
-                      <th className="p-3 border-b border-slate-200 dark:border-slate-700">NRP (TEXT)</th>
-                      <th className="p-3 border-b border-slate-200 dark:border-slate-700">Nama Lengkap</th>
+                      <th className="p-3 px-4 border-b border-black/[0.06] dark:border-white/[0.08]">#</th>
+                      <th className="p-3 px-4 border-b border-black/[0.06] dark:border-white/[0.08]">NRP (TEXT)</th>
+                      <th className="p-3 px-4 border-b border-black/[0.06] dark:border-white/[0.08]">Nama Lengkap</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tbody className="divide-y divide-black/[0.04] dark:divide-white/[0.06]">
                     {previewRows.slice(0, 50).map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="p-3 text-slate-400 font-mono">{idx + 1}</td>
-                        <td className="p-3 font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                      <tr key={idx} className="hover:bg-slate-100/50 dark:hover:bg-slate-800/40">
+                        <td className="p-3 px-4 text-slate-400 font-mono">{idx + 1}</td>
+                        <td className="p-3 px-4 font-mono font-medium text-[#0071e3] dark:text-[#2997ff]">
                           {row.nrp}
                         </td>
-                        <td className="p-3 font-medium text-slate-800 dark:text-slate-200">{row.nama_lengkap}</td>
+                        <td className="p-3 px-4 font-normal text-slate-800 dark:text-slate-200">{row.nama_lengkap}</td>
                       </tr>
                     ))}
                   </tbody>

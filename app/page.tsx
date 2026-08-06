@@ -1,23 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import Navbar from '@/components/Navbar';
 import CameraModal from '@/components/CameraModal';
 import { supabase } from '@/lib/supabaseClient';
 import { getProdiByNRP } from '@/lib/utils';
-import { Search, UserCheck, Camera, Save, MapPin, CheckCircle2, AlertCircle, RefreshCw, Sparkles, Building2, Heart, MessageSquare } from 'lucide-react';
+import { Search, UserCheck, Camera, Save, MapPin, CheckCircle2, AlertCircle, RefreshCw, Building2, Heart, MessageSquare } from 'lucide-react';
 
 // Dynamic import LeafletMap to prevent SSR window reference error
 const LeafletMap = dynamic(() => import('@/components/LeafletMap'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-48 rounded-xl bg-slate-100 dark:bg-slate-800 animate-pulse flex items-center justify-center text-xs text-slate-400">
+    <div className="w-full h-48 rounded-2xl bg-slate-100 dark:bg-slate-800/60 animate-pulse flex items-center justify-center text-xs text-slate-400">
       Memuat peta...
     </div>
   ),
 });
-
 
 export default function StudentFormPage() {
   const [nrp, setNrp] = useState('');
@@ -45,6 +44,14 @@ export default function StudentFormPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Format time as HH:MM with colon
+  const formatTimeStr = (isoOrDate: string | Date) => {
+    const d = new Date(isoOrDate);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
 
   // Check NRP against master table & saved entries
   const handleNrpSearch = async (targetNrp: string) => {
@@ -92,14 +99,13 @@ export default function StudentFormPage() {
       }
 
       // 2. Fetch existing entry if already filled before
-      const { data: entryData, error: entryErr } = await supabase
+      const { data: entryData } = await supabase
         .from('buku_angkatan_entries')
         .select('*')
         .eq('nrp', clean)
         .maybeSingle();
 
       if (entryData) {
-        // Always use autoProdi (detected from NRP) — do not allow override
         setProdi(autoProdi);
         setAsalDaerah(entryData.asal_daerah || '');
         setHobi(entryData.hobi || '');
@@ -111,9 +117,8 @@ export default function StudentFormPage() {
         setGeotagAddress(entryData.geotag_address || '');
         setGeotagTimestamp(entryData.geotag_timestamp || '');
         setStatusLengkap(entryData.status_lengkap || 'Belum Lengkap');
-        setLastSavedTime(entryData.updated_at ? new Date(entryData.updated_at).toLocaleTimeString() : null);
+        setLastSavedTime(entryData.updated_at ? formatTimeStr(entryData.updated_at) : null);
       } else {
-        // Reset form to defaults for new entry
         setProdi(autoProdi);
         setAsalDaerah('');
         setHobi('');
@@ -143,7 +148,6 @@ export default function StudentFormPage() {
     address: string;
     timestamp: string;
   }) => {
-    // Clean up previous blob URL from RAM if it was a blob URL
     setFotoPreview((prev) => {
       if (prev && prev.startsWith('blob:')) {
         URL.revokeObjectURL(prev);
@@ -235,7 +239,7 @@ export default function StudentFormPage() {
       }
 
       setSaveSuccess(true);
-      setLastSavedTime(new Date().toLocaleTimeString());
+      setLastSavedTime(formatTimeStr(new Date()));
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err: any) {
       console.error('Save data error:', err);
@@ -246,29 +250,31 @@ export default function StudentFormPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#f5f5f7] dark:bg-[#000000] text-[#1d1d1f] dark:text-[#f5f5f7] flex flex-col font-sans transition-colors duration-200">
       <Navbar />
 
-      <main className="flex-1 max-w-xl w-full mx-auto p-4 py-8 flex flex-col gap-6">
-        {/* Banner Welcome */}
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-          <div className="absolute right-0 top-0 translate-x-4 -translate-y-4 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
-          <div className="flex items-center gap-2 text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-2">
-            <Sparkles className="w-4 h-4" />
+      <main className="flex-1 max-w-xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-14 flex flex-col gap-8">
+        {/* Apple Style Hero Header */}
+        <div className="text-center flex flex-col items-center gap-2 pt-2 pb-4">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             Halaman Pengisian Data
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight mb-2">Buku Angkatan</h1>
-          <p className="text-indigo-100 text-sm leading-relaxed">
-            Made by? Antigravity
+          </span>
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            Buku Angkatan.
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-normal max-w-sm leading-relaxed">
+            Lengkapi data profil dan foto selfie Anda untuk tercatat dalam database angkatan.
           </p>
         </div>
 
-        {/* Step 1: Input NRP */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col gap-4">
-          <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-            <span>Nomor Registrasi Pokok (NRP)</span>
-            <span className="text-xs font-normal text-slate-400">10 Digit Angka</span>
-          </label>
+        {/* Step 1: Input NRP Card */}
+        <div className="apple-card rounded-3xl p-6 sm:p-7 shadow-sm flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Nomor Registrasi Pokok (NRP)
+            </label>
+            <span className="text-xs text-slate-400 dark:text-slate-500">10 Digit</span>
+          </div>
 
           <div className="relative">
             <input
@@ -277,32 +283,32 @@ export default function StudentFormPage() {
               placeholder="Contoh: 5025251001"
               value={nrp}
               onChange={(e) => handleNrpSearch(e.target.value)}
-              className="w-full pl-11 pr-10 py-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-mono text-lg tracking-wider focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none"
+              className="w-full pl-11 pr-10 py-3.5 rounded-2xl bg-[#f5f5f7] dark:bg-[#2c2c2e] border border-transparent focus:border-[#0071e3] dark:focus:border-[#2997ff] text-slate-900 dark:text-slate-100 font-mono text-lg tracking-wider focus:outline-none transition-all"
             />
-            <Search className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
+            <Search className="w-5 h-5 absolute left-3.5 top-4 text-slate-400" />
             {searchingNrp && (
-              <RefreshCw className="w-5 h-5 absolute right-3.5 top-3.5 text-indigo-500 animate-spin" />
+              <RefreshCw className="w-5 h-5 absolute right-3.5 top-4 text-[#0071e3] dark:text-[#2997ff] animate-spin" />
             )}
           </div>
 
           {nrpError && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-fadeIn">
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2.5 animate-fadeIn">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{nrpError}</span>
             </div>
           )}
 
           {masterMahasiswa && (
-            <div className="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 flex items-center justify-between gap-3 animate-fadeIn">
+            <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-between gap-3 animate-fadeIn">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <UserCheck className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <UserCheck className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400 block">
+                  <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 block">
                     Mahasiswa Terverifikasi
                   </span>
-                  <span className="font-bold text-slate-900 dark:text-white text-base">
+                  <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
                     {masterMahasiswa.nama_lengkap}
                   </span>
                 </div>
@@ -310,10 +316,10 @@ export default function StudentFormPage() {
 
               <div className="text-right">
                 <span
-                  className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                  className={`inline-block px-3 py-1 rounded-full text-[11px] font-medium ${
                     statusLengkap === 'Lengkap'
-                      ? 'bg-emerald-200 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                      ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
                   }`}
                 >
                   {statusLengkap}
@@ -325,28 +331,28 @@ export default function StudentFormPage() {
 
         {/* Step 2: Form Pengisian */}
         {masterMahasiswa && (
-          <form onSubmit={handleSaveData} className="flex flex-col gap-6 animate-fadeIn">
+          <form onSubmit={handleSaveData} className="flex flex-col gap-8 animate-fadeIn">
             {/* Form Fields Card */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col gap-5">
-              <h2 className="text-base font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center gap-2">
-                <span>Informasi Diri</span>
+            <div className="apple-card rounded-3xl p-6 sm:p-7 shadow-sm flex flex-col gap-5">
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 border-b border-black/[0.06] dark:border-white/[0.08] pb-3">
+                Informasi Diri
               </h2>
 
               {/* Nama Lengkap Read-Only */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Nama Lengkap</label>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nama Lengkap</label>
                 <input
                   type="text"
                   value={masterMahasiswa.nama_lengkap}
                   disabled
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium text-sm border border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-200/50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-sm font-medium border border-transparent cursor-not-allowed"
                 />
               </div>
 
               {/* Program Studi — Read-Only, auto-detected from NRP */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
                   Program Studi
                 </label>
                 <div className="relative">
@@ -355,9 +361,9 @@ export default function StudentFormPage() {
                     value={prodi}
                     readOnly
                     disabled
-                    className="w-full pl-3.5 pr-24 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium cursor-not-allowed"
+                    className="w-full pl-4 pr-28 py-3 rounded-xl bg-slate-200/50 dark:bg-slate-800/50 text-slate-700 dark:text-slate-300 text-sm font-medium border border-transparent cursor-not-allowed"
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 px-2 py-0.5 rounded-full whitespace-nowrap">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium bg-slate-300/60 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 px-2.5 py-0.5 rounded-full whitespace-nowrap">
                     Otomatis dari NRP
                   </span>
                 </div>
@@ -365,8 +371,8 @@ export default function StudentFormPage() {
 
               {/* Asal Daerah */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MapPin className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-slate-400" />
                   Asal Daerah / Kota asal
                 </label>
                 <input
@@ -374,14 +380,14 @@ export default function StudentFormPage() {
                   placeholder="Contoh: Surabaya, Jawa Timur"
                   value={asalDaerah}
                   onChange={(e) => setAsalDaerah(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none font-medium"
+                  className="w-full px-4 py-3 rounded-xl bg-[#f5f5f7] dark:bg-[#2c2c2e] border border-transparent focus:border-[#0071e3] dark:focus:border-[#2997ff] text-slate-900 dark:text-slate-100 text-sm focus:outline-none transition-all font-normal"
                 />
               </div>
 
               {/* Hobi */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Heart className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <Heart className="w-3.5 h-3.5 text-slate-400" />
                   Hobi / Minat
                 </label>
                 <input
@@ -389,14 +395,14 @@ export default function StudentFormPage() {
                   placeholder="Contoh: Coding, Basket, Musik"
                   value={hobi}
                   onChange={(e) => setHobi(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none font-medium"
+                  className="w-full px-4 py-3 rounded-xl bg-[#f5f5f7] dark:bg-[#2c2c2e] border border-transparent focus:border-[#0071e3] dark:focus:border-[#2997ff] text-slate-900 dark:text-slate-100 text-sm focus:outline-none transition-all font-normal"
                 />
               </div>
 
               {/* First Impression */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <MessageSquare className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5 text-slate-400" />
                   First Impression / Pesan Singkat
                 </label>
                 <textarea
@@ -404,23 +410,23 @@ export default function StudentFormPage() {
                   placeholder="Tuliskan kesan pertama Anda saat masuk kuliah atau pesan singkat untuk angkatan..."
                   value={firstImpression}
                   onChange={(e) => setFirstImpression(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none font-medium resize-y"
+                  className="w-full px-4 py-3 rounded-xl bg-[#f5f5f7] dark:bg-[#2c2c2e] border border-transparent focus:border-[#0071e3] dark:focus:border-[#2997ff] text-slate-900 dark:text-slate-100 text-sm focus:outline-none transition-all font-normal resize-y"
                 />
               </div>
             </div>
 
             {/* Foto & Geotag Card */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col gap-4">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Camera className="w-5 h-5 text-indigo-600" />
+            <div className="apple-card rounded-3xl p-6 sm:p-7 shadow-sm flex flex-col gap-5">
+              <div className="flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] pb-3">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-slate-500" />
                   <span>Foto Profile & Geotag</span>
                 </h2>
 
                 <button
                   type="button"
                   onClick={() => setIsCameraOpen(true)}
-                  className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-indigo-500/20 active:scale-95"
+                  className="px-4 py-1.5 rounded-full bg-[#0071e3] hover:bg-[#0077ed] dark:bg-[#2997ff] dark:hover:bg-[#0071e3] text-white text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
                 >
                   <Camera className="w-3.5 h-3.5" />
                   {fotoPreview ? 'Ambil Ulang Foto' : 'Ambil Foto Selfie'}
@@ -429,14 +435,14 @@ export default function StudentFormPage() {
 
               {fotoPreview ? (
                 <div className="flex flex-col gap-4">
-                  {/* Image Preview — geotag sudah baked-in ke gambar, tidak perlu overlay CSS */}
-                  <div className="relative w-full rounded-2xl overflow-hidden shadow-md bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  {/* Image Preview */}
+                  <div className="relative w-full rounded-2xl overflow-hidden shadow-sm bg-black border border-black/[0.08] dark:border-white/[0.1]">
                     <img src={fotoPreview} alt="Foto Profil" className="w-full h-auto object-cover" />
                     {geotagTimestamp && (
-                      <div className="absolute top-2 left-2">
-                        <span className="inline-flex items-center gap-1 bg-emerald-600/90 backdrop-blur text-white text-[10px] font-semibold px-2 py-1 rounded-full">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Geotag Tertanam di Foto
+                      <div className="absolute top-3 left-3">
+                        <span className="inline-flex items-center gap-1.5 bg-black/60 backdrop-blur-md text-white text-[11px] font-medium px-3 py-1 rounded-full">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          Geotag Tertanam
                         </span>
                       </div>
                     )}
@@ -444,9 +450,9 @@ export default function StudentFormPage() {
 
                   {/* Leaflet Map Preview */}
                   {geotagLat !== null && geotagLng !== null && (
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-indigo-500" />
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
                         Peta Lokasi Pengambilan Foto
                       </span>
                       <LeafletMap lat={geotagLat} lng={geotagLng} address={geotagAddress} />
@@ -456,16 +462,16 @@ export default function StudentFormPage() {
               ) : (
                 <div
                   onClick={() => setIsCameraOpen(true)}
-                  className="w-full py-10 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-3 bg-slate-50 dark:bg-slate-800/40 cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
+                  className="w-full py-12 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center gap-3 bg-[#f5f5f7]/50 dark:bg-[#2c2c2e]/40 cursor-pointer hover:border-[#0071e3] dark:hover:border-[#2997ff] transition-all"
                 >
-                  <div className="w-12 h-12 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-inner">
-                    <Camera className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-full bg-slate-200/60 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 flex items-center justify-center">
+                    <Camera className="w-5 h-5" />
                   </div>
                   <div className="text-center px-4">
-                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                       Klik untuk Mengambil Foto Selfie
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                       Kamera depan akan aktif secara otomatis beserta pencatatan lokasi geotag.
                     </p>
                   </div>
@@ -475,30 +481,30 @@ export default function StudentFormPage() {
 
             {/* Notification messages */}
             {saveSuccess && (
-              <div className="p-4 rounded-2xl bg-emerald-500 text-white shadow-lg flex items-center gap-3 animate-fadeIn">
-                <CheckCircle2 className="w-6 h-6 shrink-0" />
+              <div className="p-4 rounded-2xl bg-emerald-500 text-white shadow-sm flex items-center gap-3 animate-fadeIn">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
                 <div>
-                  <h4 className="font-bold text-sm">Data Berhasil Tersimpan!</h4>
+                  <h4 className="font-semibold text-sm">Data Berhasil Tersimpan!</h4>
                   <p className="text-xs opacity-90">
-                    Status kelengkapan: <span className="font-semibold underline">{statusLengkap}</span>
+                    Status kelengkapan: <span className="font-medium underline">{statusLengkap}</span>
                   </p>
                 </div>
               </div>
             )}
 
             {saveError && (
-              <div className="p-4 rounded-2xl bg-rose-600 text-white shadow-lg flex items-center gap-3 animate-fadeIn">
-                <AlertCircle className="w-6 h-6 shrink-0" />
+              <div className="p-4 rounded-2xl bg-rose-600 text-white shadow-sm flex items-center gap-3 animate-fadeIn">
+                <AlertCircle className="w-5 h-5 shrink-0" />
                 <div>
-                  <h4 className="font-bold text-sm">Gagal Menyimpan</h4>
+                  <h4 className="font-semibold text-sm">Gagal Menyimpan</h4>
                   <p className="text-xs opacity-90">{saveError}</p>
                 </div>
               </div>
             )}
 
             {/* Floating / Sticky Save Bar */}
-            <div className="sticky bottom-4 z-30 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md p-4 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="sticky bottom-6 z-30 apple-glass p-3 px-5 rounded-full border border-black/[0.08] dark:border-white/[0.1] shadow-lg flex items-center justify-between gap-4">
+              <div className="text-xs text-slate-500 dark:text-slate-400 pl-1">
                 {lastSavedTime ? (
                   <span>Tersimpan pukul {lastSavedTime}</span>
                 ) : (
@@ -509,16 +515,16 @@ export default function StudentFormPage() {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                className="px-5 py-2 rounded-full bg-[#0071e3] hover:bg-[#0077ed] dark:bg-[#2997ff] dark:hover:bg-[#0071e3] text-white font-medium text-xs shadow-sm flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
               >
                 {isSaving ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     Menyimpan...
                   </>
                 ) : (
                   <>
-                    <Save className="w-4 h-4" />
+                    <Save className="w-3.5 h-3.5" />
                     Simpan Data
                   </>
                 )}

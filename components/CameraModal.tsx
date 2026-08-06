@@ -23,9 +23,7 @@ interface CameraModalProps {
  * Layout (GPS Map Camera style):
  *   - Footer : full-width, black semi-transparent, NO border, NO watermark
  *   - Left   : 3×3 OSM tile grid cropped & centered on the coordinate + red pin
- *   - Right  : location name (bold, large) → address → datetime → coordinates
- *
- * All dimensions scale proportionally to photo width for consistent readability.
+ *   - Right  : location name (bold, large) → address → datetime (HH:MM format) → coordinates
  */
 async function renderGeotaggedBlob(
   photoBlob: Blob,
@@ -51,7 +49,6 @@ async function renderGeotaggedBlob(
         const FOOTER  = Math.max(280, Math.round(420 * scale));
         const MAP_SZ  = FOOTER - PAD * 2; // square map thumbnail
 
-        // Font sizes (2x from previous revision, per request)
         const HEAD_F  = Math.max(30, Math.round(38.5 * scale)); // location name
         const BODY_F  = Math.max(22, Math.round(27.5 * scale)); // address lines
         const SMALL_F = Math.max(20, Math.round(26 * scale)); // datetime + coords
@@ -66,11 +63,11 @@ async function renderGeotaggedBlob(
         // 1. Original photo
         ctx.drawImage(img, 0, 0, photoW, photoH);
 
-        // 2. Footer background — black semi-transparent, NO blue border, NO watermark
+        // 2. Footer background — black semi-transparent
         ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
         ctx.fillRect(0, photoH, photoW, FOOTER);
 
-        // ── 3×3 OSM tile grid (properly centered on coordinates) ─────────
+        // ── 3×3 OSM tile grid ─────────────────────────────────────────────
         const ZOOM = 15;
         const TILE = 256;
 
@@ -82,19 +79,16 @@ async function renderGeotaggedBlob(
 
         const tX = Math.floor(tXFloat);
         const tY = Math.floor(tYFloat);
-        // Sub-pixel offset of the coordinate within the center tile
         const offX = (tXFloat - tX) * TILE;
         const offY = (tYFloat - tY) * TILE;
 
-        // Offscreen 3×3 composite canvas (768×768 at TILE=256)
         const mc  = document.createElement('canvas');
         mc.width  = TILE * 3;
         mc.height = TILE * 3;
         const mctx = mc.getContext('2d')!;
-        mctx.fillStyle = '#c8d8b0'; // OSM-like green fallback
+        mctx.fillStyle = '#c8d8b0';
         mctx.fillRect(0, 0, mc.width, mc.height);
 
-        // Load all 9 surrounding tiles in parallel (OSM supports CORS for browsers)
         await Promise.all(
           ([-1, 0, 1] as const).flatMap((dy) =>
             ([-1, 0, 1] as const).map(
@@ -104,17 +98,16 @@ async function renderGeotaggedBlob(
                   t.crossOrigin = 'anonymous';
                   t.onload = () => {
                     mctx.drawImage(t, (dx + 1) * TILE, (dy + 1) * TILE);
-                    t.src = ''; // release decoded bitmap immediately (WebKit memory)
+                    t.src = '';
                     res();
                   };
-                  t.onerror = () => res(); // skip failed tiles gracefully
+                  t.onerror = () => res();
                   t.src = `https://tile.openstreetmap.org/${ZOOM}/${tX + dx}/${tY + dy}.png`;
                 })
             )
           )
         );
 
-        // Crop the 3×3 composite centered on the exact coordinate pixel
         const coordPx = TILE + offX;
         const coordPy = TILE + offY;
         const cropX   = Math.max(0, Math.min(mc.width  - MAP_SZ, coordPx - MAP_SZ / 2));
@@ -123,7 +116,6 @@ async function renderGeotaggedBlob(
         const mapDX = PAD;
         const mapDY = photoH + PAD;
 
-        // Draw map thumbnail with rounded corners
         ctx.save();
         ctx.beginPath();
         ctx.roundRect(mapDX, mapDY, MAP_SZ, MAP_SZ, Math.max(4, Math.round(6 * scale)));
@@ -131,13 +123,9 @@ async function renderGeotaggedBlob(
         ctx.drawImage(mc, cropX, cropY, MAP_SZ, MAP_SZ, mapDX, mapDY, MAP_SZ, MAP_SZ);
         ctx.restore();
 
-        // Release the 768×768 composite canvas — no longer needed, and WebKit
-        // reclaims canvas-backed memory faster when width/height is reset than
-        // when left to garbage collection alone.
         mc.width = 0;
         mc.height = 0;
 
-        // Red pin marker at the exact coordinate position inside the thumbnail
         const pinX = mapDX + (coordPx - cropX);
         const pinY = mapDY + (coordPy - cropY);
         const pinR = Math.max(5, Math.round(8 * scale));
@@ -153,7 +141,6 @@ async function renderGeotaggedBlob(
         ctx.stroke();
         ctx.restore();
 
-        // OSM attribution — required by OSM license, shown inside map bottom strip
         const attrF   = Math.max(9, Math.round(10 * scale));
         const attrTxt = '© OpenStreetMap contributors';
         ctx.font      = `${attrF}px sans-serif`;
@@ -164,19 +151,17 @@ async function renderGeotaggedBlob(
         ctx.fillStyle = '#222222';
         ctx.fillText(attrTxt, mapDX + 5, mapDY + MAP_SZ - 3);
 
-        // ── Text info (right of map) — GPS Map Camera hierarchy ──────────
+        // ── Text info (right of map) ──────────────────────────────────────
         const textX    = mapDX + MAP_SZ + Math.round(16 * scale);
         const textMaxW = photoW - textX - PAD;
 
-        // Split address: first 2 comma-parts = location name, rest = detail
         const parts     = address.split(',').map((s) => s.trim()).filter(Boolean);
         const locName   = parts.slice(0, 2).join(', ') || address;
         const locDetail = parts.slice(2).join(', ');
 
         let ty = photoH + PAD + HEAD_F;
 
-        // ① Location name — white, bold, large. Auto-shrink font size (instead
-        // of truncating with "…") so the full location name always displays.
+        // ① Location name
         ctx.fillStyle = '#ffffff';
         let fittedHeadF = HEAD_F;
         ctx.font = `bold ${fittedHeadF}px sans-serif`;
@@ -187,7 +172,7 @@ async function renderGeotaggedBlob(
         ctx.fillText(locName, textX, ty);
         ty += Math.round(fittedHeadF * 1.35);
 
-        // ② Detail address — slate-300, up to 2 lines
+        // ② Detail address
         ctx.fillStyle = '#cbd5e1';
         ctx.font      = `${BODY_F}px sans-serif`;
         const addrWords = locDetail.split(' ');
@@ -220,21 +205,23 @@ async function renderGeotaggedBlob(
 
         ty += Math.round(6 * scale);
 
-        // ③ Date & time — slate-400
+        // ③ Date & time — format with colon (HH:MM)
         ctx.fillStyle = '#94a3b8';
         ctx.font      = `${SMALL_F}px sans-serif`;
-        const dateStr = new Date(timestamp).toLocaleString('id-ID', {
+        const dateObj = new Date(timestamp);
+        const datePart = dateObj.toLocaleDateString('id-ID', {
           weekday: 'long',
-          day:     '2-digit',
-          month:   'long',
-          year:    'numeric',
-          hour:    '2-digit',
-          minute:  '2-digit',
+          day: '2-digit',
+          month: 'long',
+          year: 'numeric',
         });
+        const hh = String(dateObj.getHours()).padStart(2, '0');
+        const mm = String(dateObj.getMinutes()).padStart(2, '0');
+        const dateStr = `${datePart}, ${hh}:${mm}`;
         ctx.fillText(`⏱  ${dateStr}`, textX, ty);
         ty += Math.round(SMALL_F * 1.75);
 
-        // ④ Coordinates — blue, monospace
+        // ④ Coordinates
         ctx.fillStyle = '#60a5fa';
         ctx.font      = `${SMALL_F}px monospace`;
         const coordStr =
@@ -318,9 +305,6 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    // Explicitly clear srcObject — stopping tracks alone doesn't always release
-    // the decoded video frame buffer on WebKit/iOS Safari, which is a common
-    // contributor to "low memory" canvas errors on repeated captures.
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
@@ -446,57 +430,57 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-[#1c1c1e] rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-black/[0.08] dark:border-white/[0.1] flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        <div className="p-4 px-6 border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Camera className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <h3 className="font-semibold text-slate-800 dark:text-slate-100">Ambil Foto Profil</h3>
+            <Camera className="w-4 h-4 text-slate-700 dark:text-slate-200" />
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Ambil Foto Profil</h3>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content Body */}
-        <div className="p-4 flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto">
+        <div className="p-6 flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto">
           {loading ? (
             <div className="flex flex-col items-center gap-3 py-10">
-              <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin" />
-              <p className="text-sm font-medium text-slate-600 dark:text-slate-300 text-center">
+              <RefreshCw className="w-7 h-7 text-[#0071e3] dark:text-[#2997ff] animate-spin" />
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-300 text-center">
                 {statusMessage}
               </p>
             </div>
           ) : streamActive ? (
-            <div className="relative w-full aspect-[4/3] bg-black rounded-xl overflow-hidden shadow-md">
+            <div className="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden shadow-sm">
               <video
                 ref={videoRef}
                 className="w-full h-full object-cover transform -scale-x-100"
                 playsInline
                 autoPlay
               />
-              <div className="absolute top-3 left-3 bg-black/60 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-md flex items-center gap-1.5">
+              <div className="absolute top-3 left-3 bg-black/60 text-white text-[11px] font-medium px-3 py-1 rounded-full backdrop-blur-md flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 Kamera Depan Aktif
               </div>
             </div>
           ) : (
-            <div className="w-full p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl flex flex-col items-center text-center gap-3 bg-slate-50 dark:bg-slate-800/50">
+            <div className="w-full p-6 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center text-center gap-3 bg-[#f5f5f7]/60 dark:bg-[#2c2c2e]/40">
               {cameraError && (
-                <div className="text-amber-600 dark:text-amber-400 text-xs flex items-center gap-1 bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-lg border border-amber-200 dark:border-amber-900/50">
+                <div className="text-amber-700 dark:text-amber-400 text-xs flex items-center gap-1.5 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{cameraError}</span>
                 </div>
               )}
-              <p className="text-sm text-slate-600 dark:text-slate-300">
+              <p className="text-xs text-slate-600 dark:text-slate-400">
                 Pilih foto dari galeri HP atau ambil foto menggunakan kamera.
               </p>
-              <label className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 transition-all shadow-md active:scale-95">
-                <Upload className="w-4 h-4" />
+              <label className="cursor-pointer bg-[#0071e3] hover:bg-[#0077ed] dark:bg-[#2997ff] dark:hover:bg-[#0071e3] text-white px-4 py-2 rounded-full font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95">
+                <Upload className="w-3.5 h-3.5" />
                 Pilih Foto / Upload
                 <input
                   type="file"
@@ -513,30 +497,30 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between gap-3">
+        <div className="p-4 px-6 border-t border-black/[0.06] dark:border-white/[0.08] bg-[#f5f5f7]/50 dark:bg-[#1c1c1e] flex items-center justify-between gap-3">
           {streamActive ? (
             <>
-              <label className="cursor-pointer text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1">
+              <label className="cursor-pointer text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-1">
                 <Upload className="w-3.5 h-3.5" />
-                Upload dari galeri
+                Upload galeri
                 <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
               </label>
 
               <button
                 onClick={handleCapture}
                 disabled={loading}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-500/20 flex items-center gap-2 text-sm transition-all active:scale-95"
+                className="bg-[#0071e3] hover:bg-[#0077ed] dark:bg-[#2997ff] dark:hover:bg-[#0071e3] text-white font-medium px-5 py-2 rounded-full shadow-sm flex items-center gap-1.5 text-xs transition-all active:scale-95"
               >
-                <Camera className="w-4 h-4" />
+                <Camera className="w-3.5 h-3.5" />
                 Jepret Foto
               </button>
             </>
           ) : (
             <button
               onClick={startCamera}
-              className="w-full py-2.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-xl transition-all border border-indigo-200 dark:border-indigo-800 flex items-center justify-center gap-2"
+              className="w-full py-2.5 text-xs font-medium text-[#0071e3] dark:text-[#2997ff] hover:bg-[#0071e3]/10 rounded-full transition-all border border-[#0071e3]/20 flex items-center justify-center gap-2"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
               Coba Ulang Akses Kamera
             </button>
           )}
