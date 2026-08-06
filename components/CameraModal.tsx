@@ -175,16 +175,17 @@ async function renderGeotaggedBlob(
 
         let ty = photoH + PAD + HEAD_F;
 
-        // ① Location name — white, bold, large
+        // ① Location name — white, bold, large. Auto-shrink font size (instead
+        // of truncating with "…") so the full location name always displays.
         ctx.fillStyle = '#ffffff';
-        ctx.font      = `bold ${HEAD_F}px sans-serif`;
-        let loc = locName;
-        while (ctx.measureText(loc).width > textMaxW && loc.length > 4) {
-          loc = loc.slice(0, -1);
+        let fittedHeadF = HEAD_F;
+        ctx.font = `bold ${fittedHeadF}px sans-serif`;
+        while (ctx.measureText(locName).width > textMaxW && fittedHeadF > Math.round(HEAD_F * 0.5)) {
+          fittedHeadF -= 1;
+          ctx.font = `bold ${fittedHeadF}px sans-serif`;
         }
-        if (loc.length < locName.length) loc += '…';
-        ctx.fillText(loc, textX, ty);
-        ty += Math.round(HEAD_F * 1.35);
+        ctx.fillText(locName, textX, ty);
+        ty += Math.round(fittedHeadF * 1.35);
 
         // ② Detail address — slate-300, up to 2 lines
         ctx.fillStyle = '#cbd5e1';
