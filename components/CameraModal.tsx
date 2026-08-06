@@ -52,8 +52,8 @@ async function renderGeotaggedBlob(
         const MAP_SZ  = FOOTER - PAD * 2; // square map thumbnail
 
         // Font sizes (2x from previous revision, per request)
-        const HEAD_F  = Math.max(30, Math.round(42 * scale)); // location name
-        const BODY_F  = Math.max(24, Math.round(30 * scale)); // address lines
+        const HEAD_F  = Math.max(30, Math.round(38.5 * scale)); // location name
+        const BODY_F  = Math.max(22, Math.round(27.5 * scale)); // address lines
         const SMALL_F = Math.max(20, Math.round(26 * scale)); // datetime + coords
         const LINE_H  = Math.round(BODY_F * 1.65);
 

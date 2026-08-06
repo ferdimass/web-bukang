@@ -249,18 +249,18 @@ export default function StudentFormPage() {
           <div className="absolute right-0 top-0 translate-x-4 -translate-y-4 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
           <div className="flex items-center gap-2 text-indigo-200 text-xs font-semibold uppercase tracking-wider mb-2">
             <Sparkles className="w-4 h-4" />
-            Pengisian Data Mahasiswa
+            Halaman Pengisian Data
           </div>
-          <h1 className="text-2xl font-bold tracking-tight mb-2">Buku Angkatan 2026</h1>
+          <h1 className="text-2xl font-bold tracking-tight mb-2">Buku Angkatan</h1>
           <p className="text-indigo-100 text-sm leading-relaxed">
-            Silakan masukkan NRP 10-digit Anda untuk memulai. Data tersimpan secara otomatis setiap kali Anda memperbarui form.
+            Made by? Antigravity
           </p>
         </div>
 
         {/* Step 1: Input NRP */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm border border-slate-200/80 dark:border-slate-800 flex flex-col gap-4">
           <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-            <span>Nomor Induk Mahasiswa (NRP)</span>
+            <span>Nomor Registrasi Pokok (NRP)</span>
             <span className="text-xs font-normal text-slate-400">10 Digit Angka</span>
           </label>
 

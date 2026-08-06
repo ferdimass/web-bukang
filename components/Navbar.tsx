@@ -45,7 +45,7 @@ export default function Navbar() {
               Buku Angkatan
             </span>
             <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">
-              Pengumpulan Data & Foto
+              Database
             </span>
           </div>
         </Link>
